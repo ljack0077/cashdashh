@@ -12,25 +12,20 @@ from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode
 
 # ============================================
-# GPU OPTIMIZATION CONFIGURATION - FIXED
+# GPU OPTIMIZATION CONFIGURATION
 # ============================================
-# FIXED: Use the correct environment variable name
 os.environ['PYTORCH_ALLOC_CONF'] = 'expandable_segments:True'
 
 # Enable GPU optimizations
 if torch.cuda.is_available():
-    # Use 90% of available VRAM
     try:
         torch.cuda.set_per_process_memory_fraction(0.90, device=0)
     except Exception as e:
         print(f"⚠️ Could not set memory fraction: {e}")
     
-    # Enable performance optimizations
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
-    
-    # Clear any cached memory
     torch.cuda.empty_cache()
     
     print(f"✅ GPU Detected: {torch.cuda.get_device_name(0)}")
@@ -42,7 +37,6 @@ else:
 # ============================================
 # CONFIGURE DOCLING FOR MAXIMUM ACCURACY
 # ============================================
-# Create pipeline options for high-accuracy table extraction
 pipeline_options = PdfPipelineOptions()
 
 # Enable table structure recognition with maximum accuracy
@@ -54,16 +48,16 @@ pipeline_options.table_structure_options.do_cell_matching = True
 pipeline_options.images_scale = 2.0
 pipeline_options.generate_page_images = True
 
-# OCR settings for better text recognition
+# OCR settings
 pipeline_options.do_ocr = True
-# GPU will be used automatically if available
 
 # Create the DocumentConverter with optimized settings
+# FIXED: Removed the backend parameter - let Docling choose automatically
 converter = DocumentConverter(
     format_options={
         InputFormat.PDF: PdfFormatOption(
-            pipeline_options=pipeline_options,
-            backend="pypdfium2",
+            pipeline_options=pipeline_options
+            # REMOVED: backend="pypdfium2" - causes validation error
         )
     }
 )
@@ -75,7 +69,6 @@ print("✅ Docling converter initialized with high-accuracy settings")
 # ============================================
 app = FastAPI()
 
-# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -110,21 +103,17 @@ def root():
 async def extract(file: UploadFile = File(...)):
     """Upload image → Get CSV back with optimized GPU processing"""
     
-    # Save uploaded file
     suffix = Path(file.filename).suffix
     with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(await file.read())
         tmp_path = tmp.name
     
     try:
-        # Log GPU memory before processing
         if torch.cuda.is_available():
             print(f"🔍 GPU Memory before processing: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
         
-        # Use the pre-initialized converter
         result = converter.convert(tmp_path)
         
-        # Log GPU memory after processing
         if torch.cuda.is_available():
             print(f"🔍 GPU Memory after processing: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
             print(f"🔍 GPU Memory reserved: {torch.cuda.memory_reserved() / 1e9:.2f} GB")
@@ -143,13 +132,9 @@ async def extract(file: UploadFile = File(...)):
                 status_code=400
             )
         
-        # Combine tables
         combined = pd.concat(all_data, ignore_index=True)
-        
-        # Add timestamp
         combined.insert(0, 'timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         
-        # Return CSV
         csv_data = combined.to_csv(index=False, encoding='utf-8-sig')
         
         return Response(
@@ -169,20 +154,17 @@ async def extract(file: UploadFile = File(...)):
         )
     
     finally:
-        # Clean up temp file
         try:
             os.unlink(tmp_path)
         except:
             pass
         
-        # Clear GPU cache after each request
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     import uvicorn
     
-    # Print final GPU status
     if torch.cuda.is_available():
         print("\n" + "="*60)
         print("🚀 SERVER STARTING WITH GPU ACCELERATION")
