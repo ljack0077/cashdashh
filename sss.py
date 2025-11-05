@@ -101,22 +101,21 @@ def process_image():
         # Create DataFrame
         df = clean_and_standardize(table_data)
         
+        # Generate CSV content
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_content = csv_buffer.getvalue()
+        
         # Generate output filename
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_filename = f"extracted_{timestamp}_{filename.rsplit('.', 1)[0]}.csv"
-        output_path = os.path.join('output', output_filename)
-        
-        # Create output directory if not exists
-        os.makedirs('output', exist_ok=True)
-        
-        # Save to CSV
-        df.to_csv(output_path, index=False)
         
         return jsonify({
             'success': True,
             'filename': output_filename,
             'rows': len(df),
             'columns': len(df.columns),
+            'csv_data': csv_content,
             'preview': df.head(5).to_dict('records')
         })
     
